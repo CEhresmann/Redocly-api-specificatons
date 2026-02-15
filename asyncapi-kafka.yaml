@@ -1,0 +1,595 @@
+asyncapi: 3.0.0
+info:
+  title: PIM Products Mobile API
+  version: 1.0.0
+  description:  API для обработки сообщений о продуктах из топиков pim-products-mobile-topic и pim-semiproduct-mobile-topic.
+  license:
+    name: MIT
+    url: 'https://kode.ru'
+  tags:
+  - name: product
+    description: Операции с продуктами
+  - name: kafka
+    description: Kafka интеграция
+  - name: event-driven
+    description: Событийно-ориентированная архитектура
+  - name: env:production
+    description: Продуктивная среда
+  - name: env:staging
+    description: Стенд
+  externalDocs:
+    description: Документация в confluence
+    url: https://wiki.prosv.ru/pages/viewpage.action?pageId=271487139
+
+servers:
+  production:
+    host: rc1a-2ugqk8tbmi78mh0q.mdb.yandexcloud.net:9091
+    protocol: kafka
+    protocolVersion: 3.0-IV1
+    description: Production Kafka cluster (Yandex Cloud)
+    tags:
+      - name: env:production
+      - name: cloud:yandex
+    bindings:
+      kafka:
+        schemaRegistryUrl: https://schema-registry.internal
+        schemaRegistryVendor: confluent
+
+channels:
+  pim-products-mobile-topic:
+    address: pim-products-mobile-topic
+    description: Основной топик для событий продуктов.
+    messages:
+      productEvent:
+        $ref: '#/components/messages/ProductEvent'
+    bindings:
+      kafka:
+        partitions: 1
+        replicas: 1
+        topic: pim-products-mobile-topic
+        bindingVersion: 0.5.0
+        configs:
+          cleanup.policy: ["delete"]
+          retention.ms: 1814400000
+          retention.bytes: -1
+          max.message.bytes: 104857600
+          compression.type: producer
+          min.insync.replicas: 1
+          segment.bytes: 134217728
+          segment.ms: 604800000
+          delete.retention.ms: 86400000
+          message.timestamp.type: CreateTime
+          unclean.leader.election.enable: false
+    characteristics:
+      - topic
+    externalDocs:
+      description: Grafana Monitoring
+      url: https://dev.prsv.appkode.ru/grafana/?orgId=1
+  
+  pim-semiproduct-mobile-topic:
+    address: pim-semiproduct-mobile-topic
+    description: Топик для событий полуфабрикатов продуктов
+    messages:
+      productEvent:
+        $ref: '#/components/messages/ProductEvent'
+    bindings:
+      kafka:
+        partitions: 1
+        replicas: 1
+        topic: pim-semiproduct-mobile-topic
+        bindingVersion: 0.5.0
+        configs:
+          cleanup.policy: ["delete"]
+          retention.ms: 1814400000
+          retention.bytes: -1
+          max.message.bytes: 104857600
+
+
+operations:
+  receiveProductEvent:
+    action: receive
+    channel:
+      $ref: '#/channels/pim-products-mobile-topic'
+    summary: Получение событий продуктов
+    description: |
+      Операция потребления сообщений из Kafka топика.
+      Активные consumer группы: stage-mobbooks (1 consumer, 0 behind), dev-mobbooks (1 consumer, 0 behind)
+    messages:
+      - $ref: '#/channels/pim-products-mobile-topic/messages/productEvent'
+    traits:
+      - $ref: '#/components/operationTraits/kafka-consumer'
+
+components:
+  messages:
+    ProductEvent:
+      name: ProductEvent
+      title: Product Event
+      summary: Событие продукта (create/update/delete)
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ProductEventPayload'
+      headers: {}
+      bindings:
+        kafka:
+          key:
+            type: string
+            description: Ключ сообщения (равен number)
+            example: "8fb7a56e-6974-4b8a-a231-391ce656dc63"
+      examples:
+        - name: CreateEventExample
+          summary: Пример события создания продукта
+          payload:
+            version: "01"
+            number: "dc4073d1-e2f5-4ee8-8578-16acc9811776"
+            timestamp: "03.02.2026T17:38:19"
+            event: "create"
+            data:
+              contentId: "41-0811-01"
+              productFormat: "eBook"
+              productType: "ЭФУ 5.0"
+              name:
+                ru: "Школа для всех и для каждого. Из опыта управления большой школой. Электронная книга"
+        - name: DeleteEventExample
+          summary: Пример события удаления продукта 
+          payload:
+            version: "01"
+            number: "3429b162-2f74-4b12-87d6-35e183642314"
+            timestamp: "03.02.2026T15:07:11"
+            event: "delete"
+            data:
+              contentId: "06-0303-07"
+              productFormat: "eBook"
+              productType: "ЭФУ 1.0"
+              name:
+                ru: "-"
+              attributes: []
+              productLinks: []
+              skus: []
+
+  schemas:
+    ProductEventPayload:
+      type: object
+      required:
+        - version
+        - number
+        - timestamp
+        - event
+        - data
+      properties:
+        version:
+          type: string
+          description: Версия контракта
+          enum: ["01"]
+          example: "01"
+        number:
+          type: string
+          format: uuid
+          description: Уникальный идентификатор сообщения, совпадает с key сообщения
+          example: "8fb7a56e-6974-4b8a-a231-391ce656dc63"
+        timestamp:
+          type: string
+          description: Дата и время формирования сообщения (DD.MM.YYYYTHH:MM:SS)
+          example: "28.01.2026T15:42:15"
+        event:
+          $ref: '#/components/schemas/EventType'
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/ProductDataFull'
+            - $ref: '#/components/schemas/ProductDataDelete'
+          discriminator:
+            propertyName: event
+            mapping:
+              create: '#/components/schemas/ProductDataFull'
+              update: '#/components/schemas/ProductDataFull'
+              delete: '#/components/schemas/ProductDataDelete'
+
+    EventType:
+      type: string
+      description: Тип события
+      enum:
+        - create
+        - update
+        - delete
+      example: "create"
+
+    ProductDataFull:
+      type: object
+      description: Полная структура данных продукта для create и update событий
+      required:
+        - contentId
+        - productFormat
+        - productType
+        - name
+        - attributes
+        - productLinks
+        - skus
+      properties:
+        contentId:
+          type: string
+          description: Код номенклатуры продукта (идентификатор продукта)
+          example: "41-0811-01"
+        productFormat:
+          $ref: '#/components/schemas/ProductFormat'
+        productType:
+          $ref: '#/components/schemas/ProductType'
+        name:
+          $ref: '#/components/schemas/MultilingualString'
+        LinkCategories:
+          type: array
+          description: Массив связанных категорий каталога
+          items:
+            $ref: '#/components/schemas/CategoryLink'
+        LinkSelections:
+          type: array
+          description: Массив связанных подборок
+          items:
+            $ref: '#/components/schemas/SelectionLink'
+        attributes:
+          type: array
+          description: Массив связанных атрибутов продукта и значений
+          items:
+            $ref: '#/components/schemas/ProductAttribute'
+        productLinks:
+          type: array
+          description: Массив связанных продуктов
+          items:
+            $ref: '#/components/schemas/ProductLink'
+        skus:
+          type: array
+          description: Массив изданий продукта
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/Sku'
+
+    ProductDataDelete:
+      type: object
+      description: Минимальная структура данных продукта для delete событий
+      required:
+        - contentId
+        - productFormat
+        - productType
+        - name
+        - attributes
+        - productLinks
+        - skus
+      properties:
+        contentId:
+          type: string
+          description: Код номенклатуры продукта (идентификатор продукта)
+          example: "06-0303-07"
+        productFormat:
+          $ref: '#/components/schemas/ProductFormat'
+        productType:
+          $ref: '#/components/schemas/ProductType'
+        name:
+          $ref: '#/components/schemas/MultilingualString'
+        attributes:
+          type: array
+          description: Пустой массив атрибутов для delete событий
+          items:
+            type: object
+          maxItems: 0
+          example: []
+        productLinks:
+          type: array
+          description: Пустой массив связанных продуктов для delete событий
+          items:
+            type: object
+          maxItems: 0
+          example: []
+        skus:
+          type: array
+          description: Пустой массив изданий для delete событий
+          items:
+            type: object
+          maxItems: 0
+          example: []
+
+    ProductFormat:
+      type: string
+      description: Тип продукта
+      enum:
+        - eBook
+        - audioBook
+        - printedBook
+      example: "eBook"
+
+    ProductType:
+      type: string
+      description: Подтип продукта
+      enum:
+        - ЭФУ 1.0
+        - ЭФУ 4.0
+        - ЭФУ 5.0
+        - ЭФУ 5.0 Беспл.
+        - Аудиоприложение
+        - ЭФУ Lite
+      example: "ЭФУ 5.0"
+
+    MultilingualString:
+      type: object
+      description: Объект с мультиязычными значениями
+      properties:
+        ru:
+          type: string
+          description: Значение на русском языке
+          example: "Школа для всех и для каждого. Из опыта управления большой школой. Электронная книга"
+      required:
+        - ru
+
+    CategoryLink:
+      type: object
+      required:
+        - catalog
+        - marketCategories
+      properties:
+        catalog:
+          type: string
+          description: Уникальный идентификатор каталога (для мобильного приложения всегда 2)
+          const: "2"
+          example: "2"
+        marketCategories:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketCategory'
+        mainMarketCategoryPimId:
+          type: string
+          description: Уникальный идентификатор основной категории продукта
+          example: "2009956"
+
+    MarketCategory:
+      type: object
+      required:
+        - pimId
+        - name
+      properties:
+        pimId:
+          type: string
+          description: Уникальный идентификатор маркетинговой категории
+          example: "2009956"
+        name:
+          $ref: '#/components/schemas/MultilingualString'
+        sort:
+          type: integer
+          description: Порядок сортировки категории
+          minimum: 1
+          example: 1
+
+    SelectionLink:
+      type: object
+      required:
+        - pimId
+        - name
+      properties:
+        pimId:
+          type: string
+          description: Уникальный идентификатор подборки
+          example: "2053485"
+        name:
+          $ref: '#/components/schemas/MultilingualString'
+
+    ProductAttribute:
+      type: object
+      required:
+        - pimId
+        - externalCode
+        - values
+      properties:
+        pimId:
+          type: string
+          description: Уникальный идентификатор атрибута
+          example: "453"
+        externalCode:
+          $ref: '#/components/schemas/AttributeExternalCode'
+        values:
+          type: array
+          description: Массив значений атрибута
+          items:
+            $ref: '#/components/schemas/AttributeValue'
+
+    AttributeExternalCode:
+      type: string
+      description: Код атрибута (справочника)
+      enum:
+        - CNClassAge
+        - CNEduLevelId
+        - CNLanguage
+        - CNLiteratureTypeId
+        - CNMainAuthor
+        - CNPublishingHouse
+        - CNSeriesLineUMK
+        - CNSubject
+        - CNName
+        - CNNotes
+        - CNMarketingNotes
+        - EDInventTitleYear
+        - EDISBN
+        - CNAuthors
+        - attCover
+        - attrBadges
+        - CNFree
+        - CNNew
+        - CNInventContentId
+        - EDSiteType
+        - ITSKU
+        - CNPublishMP
+        - EDInventTitleYearId
+      example: "CNFree"
+
+    AttributeValue:
+      type: object
+      properties:
+        value:
+          oneOf:
+            - type: string
+              description: Простое строковое значение (для boolean-like значений)
+              example: "false"
+            - $ref: '#/components/schemas/MultilingualString'
+        valuePimId:
+          type: string
+          description: Уникальный идентификатор значения атрибута
+          example: "5637158826"
+        sort:
+          type: integer
+          description: Сортировка значения атрибута
+          minimum: 0
+          example: 96
+        pathSmall:
+          type: string
+          format: uri
+          description: Ссылка на обложку (маленький размер)
+          example: "https://storage.yandexcloud.net/local-file-public/a91e/4858/82ba/4a55c18b-a91e-4858-82ba-e10b7cafba77-small.webp"
+        pathMedium:
+          type: string
+          format: uri
+          description: Ссылка на обложку (средний размер)
+          example: "https://storage.yandexcloud.net/local-file-public/a91e/4858/82ba/4a55c18b-a91e-4858-82ba-e10b7cafba77-medium.webp"
+        badgeContentType:
+          type: string
+          enum: [image, text]
+          description: Тип контента бейджа
+        badgeImageId:
+          type: string
+          description: Уникальный идентификатор изображения бейджа
+        badgeImageLink:
+          type: string
+          format: uri
+          description: Ссылка на изображение бейджа
+        badgeType:
+          type: string
+          enum: [main, promotion]
+          description: Тип бейджа
+        badgePlacement:
+          type: string
+          enum: [top, bottom]
+          description: Тип расположения бейджа
+        badgeColor:
+          type: string
+          enum: [red, blue, green]
+          description: Цвет бейджа (для текстового типа)
+        badgeForm:
+          type: string
+          enum: [verticalRectangular, horizontalRectangular, square]
+          description: Форма бейджа
+        dateStart:
+          type: string
+          format: date
+          description: Дата начала действия бейджа
+          example: "2023-04-28"
+        dateEnd:
+          type: string
+          format: date
+          description: Дата окончания действия бейджа
+          example: "2023-04-28"
+
+    ProductLink:
+      type: object
+      required:
+        - id
+        - typeLink
+        - sort
+      properties:
+        id:
+          type: string
+          description: Идентификатор связанного товара
+          example: "41-0733-01"
+        productFormat:
+          type: string
+          description: Формат связанного продукта
+          enum: [printedBook, eBook, audioBook]
+          example: "printedBook"
+        typeLink:
+          $ref: '#/components/schemas/LinkType'
+        sort:
+          type: integer
+          description: Сортировка связанного продукта
+          minimum: 1
+          example: 1
+
+    LinkType:
+      type: string
+      description: Тип связи
+      enum:
+        - linkFormat
+        - buyTogether
+        - methodicalMaterials
+      example: "linkFormat"
+
+    Sku:
+      type: object
+      required:
+        - id
+        - is_active
+        - is_actual
+      properties:
+        id:
+          type: string
+          description: Идентификатор издания
+          example: "NM0182074"
+        is_active:
+          type: boolean
+          description: Активность издания (активна может быть только одна запись)
+          example: true
+        is_actual:
+          type: boolean
+          description: Актуальность издания
+          example: true
+        attributes:
+          type: array
+          description: Массив атрибутов издания
+          items:
+            $ref: '#/components/schemas/SkuAttribute'
+
+    SkuAttribute:
+      type: object
+      required:
+        - pimId
+        - externalCode
+        - values
+      properties:
+        pimId:
+          type: string
+          description: Уникальный идентификатор атрибута
+          example: "44"
+        externalCode:
+          type: string
+          enum: [EDInventTitleYearId, EDISBN]
+          description: Код атрибута
+          example: "EDISBN"
+        values:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkuAttributeValue'
+
+    SkuAttributeValue:
+      type: object
+      properties:
+        value:
+          oneOf:
+            - type: string
+              description: Значение атрибута (для года издания)
+              example: "2025"
+            - $ref: '#/components/schemas/MultilingualString'
+
+  messageTraits:
+      kafka-key:
+        bindings:
+          kafka:
+            key:
+              type: string
+              example: "8fb7a56e-6974-4b8a-a231-391ce656dc63"
+              description: Ключ сообщения для партиционирования
+
+  operationTraits:
+    kafka-consumer:
+      bindings:
+        kafka:
+          groupId:
+            type: string
+            description: Идентификатор группы потребителей
+          clientId:
+            type: string
+            description: Идентификатор клиента
+      externalDocs:
+        description: Мониторинг consumer групп
+        url: https://monitoring.internal/kafka-consumers

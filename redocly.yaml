@@ -1,0 +1,108 @@
+apis:
+  main:
+    root: ./asyncapi-kafka.yaml
+
+extends:
+  - recommended
+
+rules:
+  operation-operationId-unique: off
+  no-unused-components: warn
+  no-empty-servers: off
+  
+  operation-tag-defined: error
+  no-invalid-schema-examples: error
+  no-invalid-media-type-examples: error
+  scalar-property-missing-example: warn
+  
+  rule/operation-summary-sentence-case:
+    subject:
+      type: Operation
+      property: summary
+    message: Operation summary must be sentence cased.
+    assertions:
+      pattern: /^([A-Z]{2,}|[A-Z][^A-Z]*)\b(\s+(?:[A-Z]{2,}|[^A-Z]*)\b)*$/
+  
+  rule/example-summary-sentence-case:
+    subject:
+      type: Example
+      property: summary
+    message: Example summary must be sentence cased.
+    assertions:
+      pattern: /^([A-Z]{2,}|[A-Z][^A-Z]*)\b(\s+(?:[A-Z]{2,}|[^A-Z]*)\b)*$/
+  
+  rule/timestamp-format:
+    subject:
+      type: Schema
+      property: pattern
+    message: Timestamp must match DD.MM.YYYYTHH:MM:SS format
+    where:
+      - subject:
+          type: Schema
+          property: description
+        assertions:
+          pattern: /timestamp/i
+    assertions:
+      pattern: /^\d{2}\.\d{2}\.\d{4}T\d{2}:\d{2}:\d{2}$/
+
+
+  rule/number-uuid-format:
+    subject:
+      type: Schema
+      property: format
+    message: Number field should use UUID format
+    where:
+      - subject:
+          type: Schema
+          property: description
+        assertions:
+          pattern: /идентификатор сообщения|message id/i
+    assertions:
+      const: uuid
+
+  rule/kafka-binding-config:
+    subject:
+      type: ChannelBindings
+    message: Kafka bindings should include required configs
+    assertions:
+      required:
+        - partitions
+        - replicas
+        - topic
+
+  rule/kafka-consumer-group-doc:
+    subject:
+      type: Operation
+    message: Consumer operations should document groupId
+    where:
+      - subject:
+          type: Operation
+          property: action
+        assertions:
+          enum: [receive]
+    assertions:
+      required:
+        - traits
+
+theme:
+  openapi:
+    theme:
+      colors:
+        primary:
+          main: "#0077b6"
+      typography:
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+    generateCodeSamples:
+      languages:
+        - lang: curl
+        - lang: Python
+        - lang: JavaScript
+        - lang: Go
+
+
+
+ignore:
+  - .github
+  - node_modules
+  - temp
+  - scripts
