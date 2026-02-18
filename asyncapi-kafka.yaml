@@ -68,7 +68,7 @@ channels:
   
   pim-semiproduct-mobile-topic:
     address: pim-semiproduct-mobile-topic
-    description: Топик для событий полуфабрикатов продуктов
+    description: Топик для событий продуктов на препрод окружении
     messages:
       productEvent:
         $ref: '#/components/messages/ProductEvent'
